@@ -5,7 +5,7 @@
 | Field | Value |
 | --- | --- |
 | Product | Navi |
-| Version | 1.0 |
+| Version | 1.1 |
 | Status | Draft |
 | Date | 6 September 2026 |
 | Audience | Skippers of a Hallberg-Rassy 342 cruising the south and south-east of England |
@@ -19,6 +19,8 @@
 Navi is a chartplotter-style application for a Hallberg-Rassy 342 (HR 342) sailing the English south coast, Solent, Dover Strait approaches and Thames Estuary. It shows **charts, wind, depth and IALA Region A navigation marks**, with **day and night identification** of those marks, **safe-sailing checks** against this yacht’s draught and air draught, and **route plotting**.
 
 Every map, weather, bathymetry, tide, wreck, routeing and mark dataset must come from an **open-licence provider**. Official UKHO Admiralty ENC/raster charts, Navionics, C-MAP and paid weather services are out of scope.
+
+Navi is a **Progressive Web App**: install it on a tablet or phone, download charts and course data over harbour Wi-Fi, then use it offshore with no signal. It deploys to **Vercel** as a static front end. There is **no required server database** in v1; routes, yacht settings and downloaded packs live in the browser (**IndexedDB**, **Cache Storage**, and a little **localStorage**).
 
 The product is an **aid to passage planning and cockpit awareness**. It must never present itself as an Electronic Chart Display and Information System (ECDIS) or as a replacement for up-to-date official charts, a tidal almanac, or a lookout.
 
@@ -51,6 +53,7 @@ Open datasets already exist for most of this (OpenStreetMap / OpenSeaMap seamark
 6. Support creating, editing, reversing and following routes with bearing, distance and ETA.
 7. Use **only open data and open-source software** for maps, wind, depth, tides, marks and hazards.
 8. Work **offline** for charts, marks and last-fetched weather once the area has been cached.
+9. Ship as an installable **PWA** that can be deployed to **Vercel** without a hosted database.
 
 ### 3.2 Non-goals (v1)
 
@@ -61,6 +64,8 @@ Open datasets already exist for most of this (OpenStreetMap / OpenSeaMap seamark
 - Racing tactics, polar optimisation contests, or IRC rating tools.
 - Crowdsourced harbour reviews, booking marinas, or social features.
 - Paid chart subscriptions, even as an optional overlay.
+- A mandatory cloud account, hosted database, or multi-device sync in v1 (see §9.5).
+- Native App Store / Play Store wrappers in v1 (PWA install is enough).
 
 ---
 
@@ -322,6 +327,20 @@ The night card must show:
 | NAV-03 | P1 | Logbook: track recorded at a sensible interval, export GPX. |
 | NAV-04 | P2 | NMEA 0183 / 2000 / Signal K depth and wind from the yacht’s instruments (true wind vs app forecast). |
 
+### 8.8 Progressive Web App, install, and “download for this course”
+
+| ID | Priority | Requirement |
+| --- | --- | --- |
+| PWA-01 | P0 | Ship as a **responsive web app** with a Web App Manifest and service worker. Installable on iPad/iOS Safari and Android Chrome (“Add to Home Screen”). |
+| PWA-02 | P0 | App shell (UI, yacht profile, last route) loads **offline** after the first visit. |
+| PWA-03 | P0 | **Download for this course:** given the active route, prefetch and store map tiles (plus a corridor buffer), seamarks, last wind forecast, and tide snapshot so that follow-mode works with the radio modem off. |
+| PWA-04 | P0 | Download UI shows pack size estimate, progress, last successful time, and what will *not* be fresh (wind older than 6 h). |
+| PWA-05 | P0 | Skipper can delete a course pack to reclaim storage. |
+| PWA-06 | P0 | HTTPS required (satisfied by Vercel). Service worker must not cache the disclaimer away; safety banner remains. |
+| PWA-07 | P1 | Optional download of the **whole v1 cruising box** at moderate zoom (harbour zoom still via course pack). |
+
+**Acceptance (PWA):** On harbour Wi-Fi, skipper plots Cowes → Yarmouth, taps **Download for this course**, enables aeroplane mode, reloads the app, and still sees the chart corridor, marks, stored route, and last wind.
+
 ---
 
 ## 9. Data architecture — open providers only
@@ -396,6 +415,86 @@ The night card must show:
 
 A single **Data & licences** screen, plus a compact map credit, must name OSM/OpenSeaMap, EMODnet, GEBCO, Open-Meteo and upstream models (UKMO, ECMWF, DWD, Météo-France, NOAA), Environment Agency, Channel Coastal Observatory, UKHO (OGL), Copernicus, JNCC/Natural England, and WMM as used.
 
+### 9.5 Local-first storage — no hosted database in v1
+
+v1 is a **single yacht, single device** tool. A server database is not required and must not block deploy.
+
+| Store | Technology | What lives there | Why not the other options |
+| --- | --- | --- | --- |
+| Tiny preferences | **localStorage** | Night mode, last map centre/zoom, active route id, layer toggles | Synchronous, < 5 KB, fine if lost |
+| Structured app data | **IndexedDB** (via a small wrapper) | Yacht profile, routes, waypoints, seamark snapshots, weather JSON, tide snapshots, course-pack metadata | localStorage is too small (~5 MB) and string-only |
+| Map tiles and HTTP APIs | **Cache Storage** (service worker / Workbox) | OpenFreeMap / OSM tiles, OpenSeaMap overlay tiles, opaque forecast responses | Natural fit for `Request`/`Response`; the browser already quotas this for PWAs |
+
+**Decision:** do **not** run Postgres, SQLite-on-the-server, Vercel KV, or Firebase for v1. IndexedDB on a tablet is typically hundreds of MB to several GB — enough for a Channel-coast course pack.
+
+**What we accept by staying local**
+
+- Uninstalling the PWA, or clearing site data, **wipes routes and packs**. Export GPX before that.
+- Two devices do not sync. Copy a GPX (or later a pack file) by hand.
+- No login, no position uploaded (NFR-05).
+
+**When a database *would* be justified (not v1)**
+
+- Multi-device sync for the same skipper
+- Shared crew route library
+- Hosted tile extracts too large for Vercel’s static CDN
+- Audit log of passage plans
+
+If that day comes, add an optional authenticated API and keep IndexedDB as the offline cache (local-first, not cloud-first). Until then, Vercel hosts **only static assets** (HTML, JS, CSS, icons, a few GeoJSON fixtures).
+
+**Course pack record (IndexedDB)**
+
+```text
+CoursePack {
+  id, routeId, createdAtUtc,
+  bbox, minZoom, maxZoom,
+  tileCount, markCount,
+  weatherIssuedAtUtc,
+  tideIssuedAtUtc,
+  bytesEstimate
+}
+```
+
+Tiles themselves sit in Cache Storage, keyed by URL. Marks and weather sit in IndexedDB so they can be queried without parsing tile images.
+
+### 9.6 Hosting on Vercel
+
+**Yes — v1 is designed to deploy to Vercel.**
+
+| Concern | How it fits Vercel |
+| --- | --- |
+| App type | Static SPA / Vite build (`dist/`). Framework preset: Vite. |
+| Serverless functions | **Not required** for MVP. Open-Meteo, Overpass and the Environment Agency API are called **from the browser** (they send CORS headers). |
+| Tile proxy | Optional later (`/tiles/...` rewrite) if a tile host lacks CORS. Prefer CORS-friendly open hosts first (**OpenFreeMap** vector tiles). |
+| Service worker | Supported. Set `Cache-Control: no-cache` on `sw.js` / `manifest.webmanifest` so skippers receive worker updates. |
+| SPA routing | `rewrites`: all paths → `/index.html`. |
+| Environment secrets | None for v1. No API keys for Open-Meteo or OSM. |
+| Limits | Stay inside Vercel’s static bandwidth; do not proxy the entire EMODnet DTM through serverless. Large DTMs belong in client cache from the provider, or a future object store. |
+| Preview deploys | Every PR gets a HTTPS URL — required for PWA install testing. |
+| Custom domain | Optional; PWA install works on `*.vercel.app`. |
+
+`vercel.json` (normative for v1):
+
+```json
+{
+  "rewrites": [{ "source": "/((?!sw\\.js|manifest\\.webmanifest).*)", "destination": "/index.html" }],
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+    }
+  ]
+}
+```
+
+If a rewrite is too broad in practice, prefer Vite’s `appType: "spa"` and Vercel’s Vite preset, and only special-case the service worker headers.
+
+**Not a good fit for Vercel (avoid):** generating worldwide vector tiles at request time, storing skipper tracks on the server, or WebSocket AIS fans. Those would need a different host or a later API.
+
 ---
 
 ## 10. User experience
@@ -407,7 +506,7 @@ A single **Data & licences** screen, plus a compact map credit, must name OSM/Op
 3. **Route** — waypoint list, validation, ETAs.
 4. **Weather** — wind/wave along route, model time.
 5. **Yacht** — HR 342 numbers, UKC policy, keel variant.
-6. **Download** — offline pack status.
+6. **Download** — offline pack status; **Download for this course** is the primary action (harbour Wi-Fi), with pack size, progress and delete.
 
 ### 10.2 Cockpit constraints
 
@@ -438,6 +537,10 @@ A single **Data & licences** screen, plus a compact map credit, must name OSM/Op
 | NFR-07 | Licence compliance automated in CI (attribution list, no forbidden SDKs). |
 | NFR-08 | Test coverage for UKC maths, IALA light parsing, and route validation (TDD). |
 | NFR-09 | Time: all forecasts stored in UTC; display Europe/London with BST. |
+| NFR-10 | Installable PWA (manifest `display: standalone`, icons 192 and 512, `theme-color` compatible with night mode). |
+| NFR-11 | Deployable to Vercel with zero required environment variables. |
+| NFR-12 | No hosted database. Persistence must work with IndexedDB + Cache Storage + localStorage only. |
+| NFR-13 | Course-pack download is resumable enough that a dropped Wi-Fi hop can be retried without starting the route again. |
 
 ---
 
@@ -445,7 +548,7 @@ A single **Data & licences** screen, plus a compact map credit, must name OSM/Op
 
 ### MVP (P0)
 
-Offline chart of the v1 box, OSM/OpenSeaMap marks with day and night cards, EMODnet/GEBCO depth with HR 342 UKC shading, Open-Meteo wind, EA tide observations, manual route plot + validate (shoal, wrecks, TSS, unknown bridges), GPX export, night palette, licence screen.
+PWA on Vercel (static), IndexedDB + Cache Storage (no database), OSM/OpenSeaMap marks with day and night cards, depth awareness with HR 342 UKC shading (EMODnet/GEBCO as data land; fail-safe unknown cells until the DTM is cached), Open-Meteo wind, EA tide observations, manual route plot + validate (shoal, wrecks, TSS, unknown bridges), **download for this course**, GPX export, night palette, licence screen.
 
 ### v1.1 (P1)
 
@@ -484,15 +587,19 @@ Technical:
 | Thames air draught | Conservative default 17.5 m; unknown bridges block auto-approve |
 | FES/AVISO licence too tight | Drop offshore tide model; keep EA + CCO only |
 | Crowd depth misleading | Visual hierarchy under official-open DTM |
+| IndexedDB evicted by the OS | Warn on `storage` estimate; prompt GPX export; `persist()` where the browser allows |
+| Vercel stale service worker | No-cache headers on `sw.js`; Workbox skipWaiting + a “Reload to update” toast |
 
 ---
 
 ## 15. Open questions
 
-1. Target platform for v1: responsive web (PWA, easiest offline tiles) versus a native tablet app? Recommendation: **PWA + MapLibre** first, installable on iPad/Android in the cockpit.
+1. ~~Target platform for v1?~~ **Decided:** installable **PWA** (Vite + MapLibre + Workbox), not a native app. See §8.8 and §9.6.
 2. Is the shallow-draught HR 342 (1.57 m) in use, or only the standard 1.82 m keel? Ship both; default 1.82 m.
 3. Should French SHOM open data be added for Cherbourg/Calais harbour marks, or remain OSM-only across the Channel?
-4. Do we host our own OSM/OpenMapTiles extract, or consume a community tile server with attribution and cache locally?
+4. ~~Own tile extract vs community CDN?~~ **Decided for v1:** **OpenFreeMap** (OSM-based vector, no API key, CORS) + Cache Storage along the course. Revisit a self-hosted extract if the CDN is too coarse for harbour work or goes away.
+5. ~~Database or local storage?~~ **Decided:** **no hosted database**. IndexedDB + Cache Storage + localStorage. See §9.5.
+6. ~~Can it deploy to Vercel?~~ **Decided: yes** — static Vite app, no serverless required for MVP. See §9.6.
 
 ---
 
@@ -573,4 +680,20 @@ if tide or datum unknown → treat cell as unknown, not safe
 
 ---
 
-*End of PRD v1.0*
+---
+
+## 20. Delivery stack (v1)
+
+| Layer | Choice | Notes |
+| --- | --- | --- |
+| Language | TypeScript | TDD with Vitest for UKC, lights, routes, course tiles |
+| UI | React | Cockpit-sized tap targets |
+| Map | MapLibre GL JS | Open-source; vector + GeoJSON marks |
+| Base tiles | OpenFreeMap | OSM, no key |
+| Marks | Overpass → GeoJSON, cached in IndexedDB | OpenSeaMap `seamark:*` |
+| Wind | Open-Meteo Forecast API | Browser fetch, cache JSON |
+| Offline | vite-plugin-pwa / Workbox | App shell + runtime tile cache + explicit course prefetch |
+| Persistence | IndexedDB + localStorage | No Vercel KV / Postgres |
+| Hosting | Vercel static | `vercel.json` headers for the service worker |
+
+*End of PRD v1.1*
