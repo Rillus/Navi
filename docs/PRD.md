@@ -477,7 +477,11 @@ Tiles themselves sit in Cache Storage, keyed by URL. Marks and weather sit in In
 
 ```json
 {
-  "rewrites": [{ "source": "/((?!sw\\.js|manifest\\.webmanifest).*)", "destination": "/index.html" }],
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npx vite build",
+  "outputDirectory": "dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "headers": [
     {
       "source": "/sw.js",
@@ -491,7 +495,9 @@ Tiles themselves sit in Cache Storage, keyed by URL. Marks and weather sit in In
 }
 ```
 
-If a rewrite is too broad in practice, prefer Vite’s `appType: "spa"` and Vercel’s Vite preset, and only special-case the service worker headers.
+Vercel serves existing files in `dist` first (so `/assets/*`, `/sw.js` and the homepage `index.html` are not eaten by the rewrite). Do **not** use JavaScript-style negative lookaheads in `source`; Vercel’s router does not parse them.
+
+Production must deploy a git branch that actually contains this app. The empty `main` README-only commit has no `index.html`, which Vercel reports as **404 NOT_FOUND**.
 
 **Not a good fit for Vercel (avoid):** generating worldwide vector tiles at request time, storing skipper tracks on the server, or WebSocket AIS fans. Those would need a different host or a later API.
 

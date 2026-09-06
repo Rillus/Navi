@@ -22,4 +22,6 @@ npm run dev
 npm run build
 ```
 
-Vercel project settings: framework **Vite**, output `dist`, no environment variables. The included `vercel.json` sets SPA fallback and no-cache headers for the service worker.
+`vercel.json` pins framework **Vite**, output **`dist`**, and the official SPA rewrite to `/index.html`.
+
+If the production URL is 404, Vercel is almost certainly building **`main`**, which started as a README-only commit. Deploy this app branch (or merge PR #1 into `main`), then redeploy. In the Vercel project: Framework = Vite, Output Directory = `dist`, Production Branch = the branch that contains `vite.config.ts`.
