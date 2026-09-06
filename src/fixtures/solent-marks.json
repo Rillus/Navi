@@ -1,0 +1,73 @@
+[
+  {
+    "id": "needles",
+    "lat": 50.6622,
+    "lon": -1.5908,
+    "tags": {
+      "seamark:type": "light_major",
+      "seamark:name": "Needles",
+      "seamark:light:character": "Fl",
+      "seamark:light:colour": "white",
+      "seamark:light:period": "20",
+      "seamark:light:range": "17"
+    }
+  },
+  {
+    "id": "hurst-light",
+    "lat": 50.7075,
+    "lon": -1.5508,
+    "tags": {
+      "seamark:type": "light_major",
+      "seamark:name": "Hurst Point",
+      "seamark:light:character": "Fl",
+      "seamark:light:colour": "white",
+      "seamark:light:period": "4",
+      "seamark:light:range": "14"
+    }
+  },
+  {
+    "id": "north-sturbridge",
+    "lat": 50.743,
+    "lon": -1.14,
+    "tags": {
+      "seamark:type": "buoy_lateral",
+      "seamark:name": "North Sturbridge",
+      "seamark:buoy_lateral:category": "starboard",
+      "seamark:buoy_lateral:colour": "green",
+      "seamark:buoy_lateral:shape": "conical",
+      "seamark:topmark:shape": "cone, point up",
+      "seamark:light:character": "Fl",
+      "seamark:light:colour": "green",
+      "seamark:light:period": "5"
+    }
+  },
+  {
+    "id": "west-bramble",
+    "lat": 50.786,
+    "lon": -1.307,
+    "tags": {
+      "seamark:type": "buoy_lateral",
+      "seamark:name": "West Bramble",
+      "seamark:buoy_lateral:category": "port",
+      "seamark:buoy_lateral:colour": "red",
+      "seamark:buoy_lateral:shape": "can",
+      "seamark:topmark:shape": "cylinder",
+      "seamark:light:character": "Q",
+      "seamark:light:colour": "red"
+    }
+  },
+  {
+    "id": "nab-tower",
+    "lat": 50.6678,
+    "lon": -0.9528,
+    "tags": {
+      "seamark:type": "light_major",
+      "seamark:name": "Nab Tower",
+      "seamark:light:character": "Fl",
+      "seamark:light:group": "2",
+      "seamark:light:colour": "white",
+      "seamark:light:period": "10",
+      "seamark:light:range": "15"
+    }
+  }
+]
