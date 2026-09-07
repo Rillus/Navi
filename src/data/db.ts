@@ -70,6 +70,11 @@ export const naviDb = {
     return db.getAll('routes')
   },
 
+  async deleteRoute(id: string) {
+    const db = await openNaviDb()
+    await db.delete('routes', id)
+  },
+
   async saveCoursePack(pack: CoursePack) {
     const db = await openNaviDb()
     await db.put('packs', pack)

@@ -50,7 +50,8 @@ export function buildRoute(input: {
 
 export function reverseRoute(route: Route): Route {
   return buildRoute({
-    name: `${route.name} (return)`,
+    id: route.id,
+    name: route.name.includes('(return)') ? route.name : `${route.name} (return)`,
     waypoints: [...route.waypoints].reverse(),
     speedKn: route.speedKn,
     etdUtc: route.etdUtc,
