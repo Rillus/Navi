@@ -6,18 +6,20 @@ import { OPENFREEMAP_DAY, OPENFREEMAP_NIGHT, OPENSEAMAP_TILES, CRUISING_BOX, SOL
 import type { ParsedSeamark } from '../domain/lights'
 import type { Route } from '../domain/route'
 import type { LatLon } from '../domain/geo'
+import { routesToGeoJson } from '../domain/plots'
 
 type Props = {
   night: boolean
   plotting: boolean
-  route: Route | null
+  routes: Route[]
+  activeRouteId: string | null
   marks: ParsedSeamark[]
   onMapClick: (point: LatLon) => void
   onSelectMark: (mark: ParsedSeamark) => void
+  onSelectRoute: (id: string) => void
 }
 
 function marksToGeoJson(marks: ParsedSeamark[]): FeatureCollection {
-
   return {
     type: 'FeatureCollection',
     features: marks.map((mark) => ({
@@ -32,39 +34,103 @@ function marksToGeoJson(marks: ParsedSeamark[]): FeatureCollection {
   }
 }
 
-function routeToGeoJson(route: Route | null): FeatureCollection {
-  if (!route || route.waypoints.length === 0) {
-    return { type: 'FeatureCollection', features: [] }
+function addOverlays(
+  map: maplibregl.Map,
+  night: boolean,
+  marks: ParsedSeamark[],
+  routes: Route[],
+  activeRouteId: string | null,
+) {
+  if (!map.getSource('openseamap')) {
+    map.addSource('openseamap', {
+      type: 'raster',
+      tiles: [OPENSEAMAP_TILES],
+      tileSize: 256,
+      attribution: '© OpenSeaMap',
+    })
+    map.addLayer({
+      id: 'openseamap',
+      type: 'raster',
+      source: 'openseamap',
+      paint: { 'raster-opacity': night ? 0.7 : 0.9 },
+    })
   }
-  return {
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        properties: {},
-        geometry: {
-          type: 'LineString',
-          coordinates: route.waypoints.map((wp) => [wp.lon, wp.lat]),
-        },
+  if (!map.getSource('marks')) {
+    map.addSource('marks', { type: 'geojson', data: marksToGeoJson(marks) })
+    map.addLayer({
+      id: 'marks-circle',
+      type: 'circle',
+      source: 'marks',
+      paint: {
+        'circle-radius': 7,
+        'circle-color': [
+          'match',
+          ['get', 'colour'],
+          'green',
+          '#2f9e6b',
+          'red',
+          '#d64545',
+          'yellow',
+          '#e8c468',
+          '#cfe8ef',
+        ],
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#042026',
       },
-      ...route.waypoints.map((wp, i) => ({
-        type: 'Feature' as const,
-        properties: { name: wp.name ?? `WP ${i + 1}` },
-        geometry: { type: 'Point' as const, coordinates: [wp.lon, wp.lat] },
-      })),
-    ],
+    })
+  }
+  if (!map.getSource('route')) {
+    map.addSource('route', {
+      type: 'geojson',
+      data: routesToGeoJson(routes, activeRouteId) as FeatureCollection,
+    })
+    map.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route',
+      filter: ['==', ['get', 'kind'], 'line'],
+      paint: {
+        'line-color': ['case', ['get', 'active'], '#3cb4c5', '#8aa3ad'],
+        'line-width': ['case', ['get', 'active'], 4, 2],
+        'line-opacity': ['case', ['get', 'active'], 1, 0.55],
+      },
+    })
+    map.addLayer({
+      id: 'route-points',
+      type: 'circle',
+      source: 'route',
+      filter: ['==', ['get', 'kind'], 'point'],
+      paint: { 'circle-radius': 6, 'circle-color': '#e8c468', 'circle-stroke-width': 1, 'circle-stroke-color': '#042026' },
+    })
   }
 }
 
-export function ChartMap({ night, plotting, route, marks, onMapClick, onSelectMark }: Props) {
+export function ChartMap({
+  night,
+  plotting,
+  routes,
+  activeRouteId,
+  marks,
+  onMapClick,
+  onSelectMark,
+  onSelectRoute,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const marksRef = useRef(marks)
+  const routesRef = useRef(routes)
+  const activeRef = useRef(activeRouteId)
+  const plottingRef = useRef(plotting)
   const onMapClickRef = useRef(onMapClick)
   const onSelectMarkRef = useRef(onSelectMark)
+  const onSelectRouteRef = useRef(onSelectRoute)
   marksRef.current = marks
+  routesRef.current = routes
+  activeRef.current = activeRouteId
+  plottingRef.current = plotting
   onMapClickRef.current = onMapClick
   onSelectMarkRef.current = onSelectMark
+  onSelectRouteRef.current = onSelectRoute
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -80,10 +146,7 @@ export function ChartMap({ night, plotting, route, marks, onMapClick, onSelectMa
       attributionControl: false,
     })
     map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'bottom-right')
-    map.addControl(
-      new maplibregl.AttributionControl({ compact: true }),
-      'bottom-left',
-    )
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
     map.addControl(
       new maplibregl.GeolocateControl({
         positionOptions: { enableHighAccuracy: true },
@@ -93,154 +156,64 @@ export function ChartMap({ night, plotting, route, marks, onMapClick, onSelectMa
     )
 
     map.on('load', () => {
-      map.addSource('openseamap', {
-        type: 'raster',
-        tiles: [OPENSEAMAP_TILES],
-        tileSize: 256,
-        attribution: '© OpenSeaMap',
-      })
-      map.addLayer({
-        id: 'openseamap',
-        type: 'raster',
-        source: 'openseamap',
-        paint: { 'raster-opacity': 0.9 },
-      })
-      map.addSource('marks', { type: 'geojson', data: marksToGeoJson(marksRef.current) })
-      map.addLayer({
-        id: 'marks-circle',
-        type: 'circle',
-        source: 'marks',
-        paint: {
-          'circle-radius': 7,
-          'circle-color': [
-            'match',
-            ['get', 'colour'],
-            'green',
-            '#2f9e6b',
-            'red',
-            '#d64545',
-            'yellow',
-            '#e8c468',
-            '#cfe8ef',
-          ],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#042026',
-        },
-      })
-      map.addSource('route', { type: 'geojson', data: routeToGeoJson(null) })
-      map.addLayer({
-        id: 'route-line',
-        type: 'line',
-        source: 'route',
-        filter: ['==', '$type', 'LineString'],
-        paint: { 'line-color': '#3cb4c5', 'line-width': 3 },
-      })
-      map.addLayer({
-        id: 'route-points',
-        type: 'circle',
-        source: 'route',
-        filter: ['==', '$type', 'Point'],
-        paint: { 'circle-radius': 5, 'circle-color': '#e8c468' },
-      })
+      addOverlays(map, night, marksRef.current, routesRef.current, activeRef.current)
+      map.resize()
     })
 
     map.on('click', (event) => {
-      const features = map.queryRenderedFeatures(event.point, { layers: ['marks-circle'] })
-      const id = features[0]?.properties?.id
-      if (id) {
-        const mark = marksRef.current.find((item) => item.id === id)
+      const point = { lat: event.lngLat.lat, lon: event.lngLat.lng }
+      if (plottingRef.current) {
+        onMapClickRef.current(point)
+        return
+      }
+      const routeHit = map.queryRenderedFeatures(event.point, { layers: ['route-line'] })
+      const routeId = routeHit[0]?.properties?.routeId
+      if (typeof routeId === 'string') {
+        onSelectRouteRef.current(routeId)
+        return
+      }
+      const markHit = map.queryRenderedFeatures(event.point, { layers: ['marks-circle'] })
+      const markId = markHit[0]?.properties?.id
+      if (markId) {
+        const mark = marksRef.current.find((item) => item.id === markId)
         if (mark) {
           onSelectMarkRef.current(mark)
           return
         }
       }
-      onMapClickRef.current({ lat: event.lngLat.lat, lon: event.lngLat.lng })
+      onMapClickRef.current(point)
     })
+
+    const onResize = () => map.resize()
+    window.addEventListener('resize', onResize)
 
     mapRef.current = map
     return () => {
+      window.removeEventListener('resize', onResize)
       map.remove()
       mapRef.current = null
     }
     // Map is created once; night style is swapped in a later effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    const style = night ? OPENFREEMAP_NIGHT : OPENFREEMAP_DAY
-    map.setStyle(style)
+    map.setStyle(night ? OPENFREEMAP_NIGHT : OPENFREEMAP_DAY)
     map.once('style.load', () => {
-      if (!map.getSource('openseamap')) {
-        map.addSource('openseamap', {
-          type: 'raster',
-          tiles: [OPENSEAMAP_TILES],
-          tileSize: 256,
-          attribution: '© OpenSeaMap',
-        })
-        map.addLayer({
-          id: 'openseamap',
-          type: 'raster',
-          source: 'openseamap',
-          paint: { 'raster-opacity': night ? 0.7 : 0.9 },
-        })
-      }
-      if (!map.getSource('marks')) {
-        map.addSource('marks', { type: 'geojson', data: marksToGeoJson(marksRef.current) })
-        map.addLayer({
-          id: 'marks-circle',
-          type: 'circle',
-          source: 'marks',
-          paint: {
-            'circle-radius': 7,
-            'circle-color': [
-              'match',
-              ['get', 'colour'],
-              'green',
-              '#2f9e6b',
-              'red',
-              '#d64545',
-              'yellow',
-              '#e8c468',
-              '#cfe8ef',
-            ],
-            'circle-stroke-width': 2,
-            'circle-stroke-color': '#042026',
-          },
-        })
-      }
-      if (!map.getSource('route')) {
-        map.addSource('route', { type: 'geojson', data: routeToGeoJson(null) })
-        map.addLayer({
-          id: 'route-line',
-          type: 'line',
-          source: 'route',
-          filter: ['==', '$type', 'LineString'],
-          paint: { 'line-color': '#3cb4c5', 'line-width': 3 },
-        })
-        map.addLayer({
-          id: 'route-points',
-          type: 'circle',
-          source: 'route',
-          filter: ['==', '$type', 'Point'],
-          paint: { 'circle-radius': 5, 'circle-color': '#e8c468' },
-        })
-      }
+      addOverlays(map, night, marksRef.current, routesRef.current, activeRef.current)
     })
   }, [night])
 
   useEffect(() => {
-    const map = mapRef.current
-    const source = map?.getSource('marks') as GeoJSONSource | undefined
+    const source = mapRef.current?.getSource('marks') as GeoJSONSource | undefined
     source?.setData(marksToGeoJson(marks))
   }, [marks])
 
   useEffect(() => {
-    const map = mapRef.current
-    const source = map?.getSource('route') as GeoJSONSource | undefined
-    source?.setData(routeToGeoJson(route))
-  }, [route])
+    const source = mapRef.current?.getSource('route') as GeoJSONSource | undefined
+    source?.setData(routesToGeoJson(routes, activeRouteId) as FeatureCollection)
+  }, [routes, activeRouteId])
 
   useEffect(() => {
     const canvas = mapRef.current?.getCanvas()
